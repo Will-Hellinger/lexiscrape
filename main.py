@@ -125,15 +125,21 @@ def main(output_dir: str) -> None:
                 file_name = f'{output_dir}{title_hash}.json'
 
                 if title_hash not in dictionary_key:
-                    dictionary_key[title] = title_hash
+                    dictionary_key[title_hash] = title
                 
                 if os.path.exists(file_name):
                     with open(file_name, 'r') as file:
                         file_info = json.load(file)
                     
+                    definitions = word_info.get('definitions')
+
+                    for definition in file_info.get('definitions'):
+                        if definition not in definitions:
+                            definitions.append(definition)
+
                     if word_info.get('definitions') != file_info.get('definitions'):
                         with open(file_name, 'w') as file:
-                            json.dump({"definitions": word_info.get('definitions') + file_info.get('definitions')}, file)
+                            json.dump({"definitions": definitions}, file)
                 else:
                     with open(file_name, 'w') as file:
                         json.dump({"definitions": word_info.get('definitions')}, file)
@@ -142,8 +148,8 @@ def main(output_dir: str) -> None:
         total_time += stop_time - start_time
         print(f'{letter} took {stop_time - start_time} seconds to scrape')
     
-        with open(f'{output_dir}dictionary_key.json', 'w') as file:
-            json.dump(dictionary_key, file)
+        with open(f'{output_dir}dictionary_key.json', 'w', encoding='unicode-escape') as file:
+            json.dump(dictionary_key, file, indent=4, ensure_ascii=False)
     
     print(f'Total time to scrape: {total_time} seconds')
 
