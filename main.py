@@ -132,8 +132,6 @@ def main(output_dir: str) -> None:
                         file_info = json.load(file)
                     
                     if word_info.get('definitions') != file_info.get('definitions'):
-                        print(f'{title} has been updated')
-
                         with open(file_name, 'w') as file:
                             json.dump({"definitions": word_info.get('definitions') + file_info.get('definitions')}, file)
                 else:
@@ -144,8 +142,8 @@ def main(output_dir: str) -> None:
         total_time += stop_time - start_time
         print(f'{letter} took {stop_time - start_time} seconds to scrape')
     
-    with open(f'{output_dir}dictionary_key.json', 'w') as file:
-        json.dump(dictionary_key, file)
+        with open(f'{output_dir}dictionary_key.json', 'w') as file:
+            json.dump(dictionary_key, file)
     
     print(f'Total time to scrape: {total_time} seconds')
 
