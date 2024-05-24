@@ -61,12 +61,16 @@ def definition_cleaner(definition: str) -> dict:
 
     while '-' in definitions:
         definitions.remove('-')
-    
-    while '' in definitions:
-        definitions.remove('')
 
     while ', ' in definitions:
         definitions.remove(', ')
+    
+    while '' in definitions:
+        definitions.remove('')
+    
+    for i in range(len(definitions)):
+        if definitions[i][-1] == ' ':
+            definitions[i] = definitions[i][0:-1]
 
     return definitions
 
@@ -84,6 +88,9 @@ def get_word_info(url: str) -> dict:
 
     flash_card_title = soup.find('div', {'class': 'flash_card_title'})
     flash_card_english_def = soup.find('ol', {'class': 'flash_card_english_def'})
+
+    if flash_card_title.text is None or flash_card_english_def is None:
+        return {}
 
     cleaned_title = title_cleaner(flash_card_title.text)
     definitions: list = []
@@ -150,6 +157,9 @@ def scrape_thread(start_letter: str, end_letter: str, output_dir: str, url: str,
         for i in range(word_links_length):
             word_info = get_word_info(f'{url}{word_links[i]}')
 
+            if word_info == {}:
+                continue
+
             for title in word_info.get('title(s)'):
                 title_hash = hashlib.md5(title.encode()).hexdigest()
                 file_name = f'{output_dir}{title_hash}.json'
@@ -194,10 +204,7 @@ def main(output_dir: str, thread_count: int, package: bool) -> None:
     url: str = 'https://latinlexicon.org/'
     dictionary_key = {}
 
-    if output_dir[-1] != os.sep:
-        output_dir += os.sep
-
-    dictionary_dir = output_dir + 'dictionary' + os.sep
+    dictionary_dir = output_dir + os.sep +  'dictionary' + os.sep
 
     if not os.path.exists(dictionary_dir):
         os.makedirs(dictionary_dir)
@@ -215,12 +222,25 @@ def main(output_dir: str, thread_count: int, package: bool) -> None:
     for thread in threads:
         thread.join()
     
-    with open(f'{output_dir}dictionary_key.json', 'w', encoding='unicode-escape') as file:
+    with open(f'{output_dir}{os.sep}dictionary_key.json', 'w', encoding='unicode-escape') as file:
         json.dump(dictionary_key, file)
     
     if package:
         print('Packaging dictionary...')
-        shutil.make_archive(output_dir, 'zip', output_dir, '.')
+
+        if os.path.exists(f'{output_dir}.zip'):
+            os.remove(f'{output_dir}.zip')
+            print(f'{output_dir}.zip already exists, deleting...')
+
+        shutil.make_archive(output_dir, 'zip', output_dir, '.', True)
+
+        print('Creating checksum...')
+
+        checksum = hashlib.md5(open(f'{output_dir}.zip', 'rb').read()).hexdigest()
+
+        with open(f'.{os.sep}checksum.txt', 'w') as file:
+            file.write(checksum)
+
 
     stop_time = time.time()
     print(f'Total time taken: {stop_time - start_time} seconds')
