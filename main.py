@@ -180,7 +180,7 @@ def scrape_thread(start_letter: str, end_letter: str, output_dir: str, url: str,
     print(f'Thread {thread_number} has finished scraping')
 
 
-def main(output_dir: str, thread_count: int) -> None:
+def main(output_dir: str, thread_count: int, package: bool) -> None:
     """
     The main function to scrape the Latin Lexicon website.
 
@@ -188,7 +188,7 @@ def main(output_dir: str, thread_count: int) -> None:
     :param thread_count: The number of threads to use for scraping.
     :return None:
     """
-    
+
     global dictionary_key
 
     url: str = 'https://latinlexicon.org/'
@@ -197,13 +197,18 @@ def main(output_dir: str, thread_count: int) -> None:
     if output_dir[-1] != os.sep:
         output_dir += os.sep
 
+    dictionary_dir = output_dir + 'dictionary' + os.sep
+
+    if not os.path.exists(dictionary_dir):
+        os.makedirs(dictionary_dir)
+
     start_time = time.time()
 
     threads = []
     for i in range(thread_count):
         start_letter = i * (26 // thread_count)
         end_letter = (i + 1) * (26 // thread_count) if i != thread_count - 1 else 26
-        thread = threading.Thread(target=scrape_thread, args=(start_letter, end_letter, output_dir, url, i))
+        thread = threading.Thread(target=scrape_thread, args=(start_letter, end_letter, dictionary_dir, url, i))
         threads.append(thread)
         thread.start()
 
@@ -213,6 +218,10 @@ def main(output_dir: str, thread_count: int) -> None:
     with open(f'{output_dir}dictionary_key.json', 'w', encoding='unicode-escape') as file:
         json.dump(dictionary_key, file)
     
+    if package:
+        print('Packaging dictionary...')
+        shutil.make_archive(output_dir, 'zip', output_dir, '.')
+
     stop_time = time.time()
     print(f'Total time taken: {stop_time - start_time} seconds')
 
@@ -221,6 +230,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Build a dictionary from Latin Lexicon website.')
     parser.add_argument('--output-dir', default=f'.{os.sep}data{os.sep}', help='Directory to build the dictionary in')
     parser.add_argument('--thread-count', type=int, default=2, help='Number of threads to use for scraping')
+    parser.add_argument('--package', action='store_true', help='Package the dictionary into a zip file')
     args = parser.parse_args()
 
     output_dir = os.path.abspath(args.output_dir)
@@ -244,4 +254,4 @@ if __name__ == "__main__":
 
     os.makedirs(output_dir, exist_ok=True)
 
-    main(output_dir, thread_count)
+    main(output_dir, thread_count, args.package)
