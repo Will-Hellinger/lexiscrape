@@ -160,9 +160,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     output_dir = os.path.abspath(args.output_dir)
+
     if os.path.exists(output_dir):
         print(f'{output_dir} already exists, please provide a new directory')
         exit(1)
+
     os.makedirs(output_dir, exist_ok=True)
 
     main(output_dir)
