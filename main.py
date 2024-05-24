@@ -11,6 +11,12 @@ from bs4 import BeautifulSoup
 
 
 def title_cleaner(title: str) -> list[str]:
+    """
+    Clean and split the title string.
+    
+    :param title: The title string to be cleaned.
+    :return list[str]: A list of cleaned title strings.
+    """
     cleaned_title: str = ' '.join(title.split())
 
     cleaned_title: list[str] = cleaned_title.split(', ')
@@ -22,6 +28,13 @@ def title_cleaner(title: str) -> list[str]:
 
 
 def definition_cleaner(definition: str) -> dict:
+    """
+    Clean and split the definition string.
+
+    :param definition: The definition string to be cleaned.
+    :return list[str]: A list of cleaned definition strings.
+    """
+
     if '[' in definition and ']' in definition:
         start: int = definition.index('[')
         end: int = definition.index(']') + 2
@@ -59,6 +72,13 @@ def definition_cleaner(definition: str) -> dict:
 
 
 def get_word_info(url: str) -> dict:
+    """
+    Get the title and definitions of a word from the given URL.
+
+    :param url: The URL of the word to scrape.
+    :return dict: A dictionary containing the title and definitions of the word.
+    """
+
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -83,6 +103,13 @@ def get_word_info(url: str) -> dict:
 
 
 def get_word_links(url: str) -> list:
+    """
+    Get the links to the words from the given URL.
+
+    :param url: The URL of the page to scrape.
+    :return list: A list of links to the words.
+    """
+
     response: requests.Reponse = requests.get(url)
     soup: BeautifulSoup = BeautifulSoup(response.text, 'html.parser')
     
@@ -99,6 +126,17 @@ def get_word_links(url: str) -> list:
 
 
 def scrape_thread(start_letter: str, end_letter: str, output_dir: str, url: str, thread_number: int) -> None:
+    """
+    Scrape the Latin Lexicon website for words starting with the given letters.
+
+    :param start_letter: The first letter to scrape.
+    :param end_letter: The last letter to scrape.
+    :param output_dir: The directory to save the scraped data.
+    :param url: The URL of the website to scrape.
+    :param thread_number: The number of the thread.
+    :return None:
+    """
+
     global dictionary_key
 
     for letter in string.ascii_lowercase[start_letter:end_letter]:
@@ -143,6 +181,14 @@ def scrape_thread(start_letter: str, end_letter: str, output_dir: str, url: str,
 
 
 def main(output_dir: str, thread_count: int) -> None:
+    """
+    The main function to scrape the Latin Lexicon website.
+
+    :param output_dir: The directory to save the scraped data.
+    :param thread_count: The number of threads to use for scraping.
+    :return None:
+    """
+    
     global dictionary_key
 
     url: str = 'https://latinlexicon.org/'
