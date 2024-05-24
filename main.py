@@ -1,10 +1,12 @@
 import os
 import json
 import time
+import shutil
 import string
 import hashlib
 import argparse
 import requests
+import threading
 from bs4 import BeautifulSoup
 
 
@@ -96,32 +98,22 @@ def get_word_links(url: str) -> list:
     return word_links
 
 
-def main(output_dir: str) -> None:
-    url: str = 'https://latinlexicon.org/'
+def scrape_thread(start_letter: str, end_letter: str, output_dir: str, url: str, thread_number: int) -> None:
+    global dictionary_key
 
-    total_time: float = 0
+    for letter in string.ascii_lowercase[start_letter:end_letter]:
+        start_time = time.time()
 
-    if output_dir[-1] != os.sep:
-        output_dir += os.sep
-    
-    dictionary_key: dict = {}
-
-    for letter in string.ascii_lowercase:
-        start_time: float = time.time()
-
-        word_links: list = get_word_links(f'{url}browse_latin.php?p1={letter}')
+        word_links = get_word_links(f'{url}browse_latin.php?p1={letter}')
         word_links_length = len(word_links)
 
-        print(f'{letter} has {len(word_links)} words, starting to scrape...')
+        print(f'{letter} has {word_links_length} words, starting to scrape...')
         
         for i in range(word_links_length):
-            if i % 100 == 0:
-                print(f'{i}/{word_links_length} words scraped', end='\r')
-
-            word_info: dict = get_word_info(f'{url}{word_links[i]}')
+            word_info = get_word_info(f'{url}{word_links[i]}')
 
             for title in word_info.get('title(s)'):
-                title_hash: str = hashlib.md5(title.encode()).hexdigest()
+                title_hash = hashlib.md5(title.encode()).hexdigest()
                 file_name = f'{output_dir}{title_hash}.json'
 
                 if title_hash not in dictionary_key:
@@ -144,27 +136,66 @@ def main(output_dir: str) -> None:
                     with open(file_name, 'w') as file:
                         json.dump({"definitions": word_info.get('definitions')}, file)
 
-        stop_time: float = time.time()
-        total_time += stop_time - start_time
+        stop_time = time.time()
         print(f'{letter} took {stop_time - start_time} seconds to scrape')
     
-        with open(f'{output_dir}dictionary_key.json', 'w', encoding='unicode-escape') as file:
-            json.dump(dictionary_key, file, indent=4, ensure_ascii=False)
+    print(f'Thread {thread_number} has finished scraping')
+
+
+def main(output_dir: str, thread_count: int) -> None:
+    global dictionary_key
+
+    url: str = 'https://latinlexicon.org/'
+    dictionary_key = {}
+
+    if output_dir[-1] != os.sep:
+        output_dir += os.sep
+
+    start_time = time.time()
+
+    threads = []
+    for i in range(thread_count):
+        start_letter = i * (26 // thread_count)
+        end_letter = (i + 1) * (26 // thread_count) if i != thread_count - 1 else 26
+        thread = threading.Thread(target=scrape_thread, args=(start_letter, end_letter, output_dir, url, i))
+        threads.append(thread)
+        thread.start()
+
+    for thread in threads:
+        thread.join()
     
-    print(f'Total time to scrape: {total_time} seconds')
+    with open(f'{output_dir}dictionary_key.json', 'w', encoding='unicode-escape') as file:
+        json.dump(dictionary_key, file)
+    
+    stop_time = time.time()
+    print(f'Total time taken: {stop_time - start_time} seconds')
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Build a dictionary from Latin Lexicon website.')
     parser.add_argument('--output-dir', default=f'.{os.sep}data{os.sep}', help='Directory to build the dictionary in')
+    parser.add_argument('--thread-count', type=int, default=2, help='Number of threads to use for scraping')
     args = parser.parse_args()
 
     output_dir = os.path.abspath(args.output_dir)
+    thread_count = args.thread_count
+
+    if thread_count < 1:
+        thread_count = 1
+    
+    if thread_count > len(string.ascii_lowercase):
+        print(f'Thread count cannot exceed {len(string.ascii_lowercase)}, setting thread count to {len(string.ascii_lowercase)}.')
+        thread_count = len(string.ascii_lowercase)
 
     if os.path.exists(output_dir):
-        print(f'{output_dir} already exists, please provide a new directory')
-        exit(1)
+        confirm = input(f'{output_dir} already exists. Do you want to delete it? (y/n): ')
+
+        if confirm.lower() == 'y':
+            shutil.rmtree(output_dir)
+        else:
+            print('Aborting. Please provide a new directory.')
+            exit(1)
 
     os.makedirs(output_dir, exist_ok=True)
 
-    main(output_dir)
+    main(output_dir, thread_count)
