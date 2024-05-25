@@ -17,7 +17,7 @@ def title_cleaner(title: str) -> list[str]:
     :param title: The title string to be cleaned.
     :return list[str]: A list of cleaned title strings.
     """
-    cleaned_title: str = ' '.join(title.split())
+    cleaned_title: str = title.strip()
 
     cleaned_title: list[str] = cleaned_title.split(', ')
 
@@ -97,7 +97,7 @@ def get_word_info(url: str) -> dict:
 
     definition_list = flash_card_english_def.find_all('li')
     for definition in definition_list:
-        cleaned_definition = ' '.join(definition.text.split())
+        cleaned_definition = definition.text.strip()
         cleaned_definition = definition_cleaner(cleaned_definition)
         definitions += cleaned_definition
 
@@ -109,7 +109,7 @@ def get_word_info(url: str) -> dict:
     return word_info
 
 
-def get_word_links(url: str) -> list:
+def get_word_links(url: str) -> list[str]:
     """
     Get the links to the words from the given URL.
 
@@ -121,7 +121,7 @@ def get_word_links(url: str) -> list:
     soup: BeautifulSoup = BeautifulSoup(response.text, 'html.parser')
     
     a_soup: list = soup.find_all('a')
-    word_links: list = []
+    word_links: list[str] = []
 
     for a in a_soup:
         word: str = a.get('href')
@@ -132,7 +132,7 @@ def get_word_links(url: str) -> list:
     return word_links
 
 
-def scrape_thread(start_letter: str, end_letter: str, output_dir: str, url: str, thread_number: int) -> None:
+def scrape_thread(start_letter: str, end_letter: str, output_dir: str, url: str, latin_dictionary: list, thread_number: int) -> None:
     """
     Scrape the Latin Lexicon website for words starting with the given letters.
 
@@ -149,7 +149,14 @@ def scrape_thread(start_letter: str, end_letter: str, output_dir: str, url: str,
     for letter in string.ascii_lowercase[start_letter:end_letter]:
         start_time = time.time()
 
-        word_links = get_word_links(f'{url}browse_latin.php?p1={letter}')
+        word_links: list[str] = []
+
+        for dictionary in latin_dictionary:
+            word_links += get_word_links(f'{url}browse_latin.php?p1={letter}&p2={dictionary}')
+        
+        word_links = list(set(word_links))
+
+
         word_links_length = len(word_links)
 
         print(f'{letter} has {word_links_length} words, starting to scrape...')
@@ -167,22 +174,24 @@ def scrape_thread(start_letter: str, end_letter: str, output_dir: str, url: str,
                 if title_hash not in dictionary_key:
                     dictionary_key[title_hash] = title
                 
-                if os.path.exists(file_name):
-                    with open(file_name, 'r') as file:
-                        file_info = json.load(file)
-                    
-                    definitions = word_info.get('definitions')
-
-                    for definition in file_info.get('definitions'):
-                        if definition not in definitions:
-                            definitions.append(definition)
-
-                    if word_info.get('definitions') != file_info.get('definitions'):
-                        with open(file_name, 'w') as file:
-                            json.dump({"definitions": definitions}, file)
-                else:
+                if not os.path.exists(file_name):
                     with open(file_name, 'w') as file:
                         json.dump({"definitions": word_info.get('definitions')}, file)
+                    
+                    continue
+                
+                with open(file_name, 'r') as file:
+                    file_info = json.load(file)
+                    
+                definitions = word_info.get('definitions')
+
+                for definition in file_info.get('definitions'):
+                    if definition not in definitions:
+                        definitions.append(definition)
+
+                if word_info.get('definitions') != file_info.get('definitions'):
+                    with open(file_name, 'w') as file:
+                        json.dump({"definitions": definitions}, file)
 
         stop_time = time.time()
         print(f'{letter} took {stop_time - start_time} seconds to scrape')
@@ -190,7 +199,7 @@ def scrape_thread(start_letter: str, end_letter: str, output_dir: str, url: str,
     print(f'Thread {thread_number} has finished scraping')
 
 
-def main(output_dir: str, thread_count: int, package: bool) -> None:
+def main(url: str, latin_dictionary: list, output_dir: str, thread_count: int, package: bool) -> None:
     """
     The main function to scrape the Latin Lexicon website.
 
@@ -201,7 +210,6 @@ def main(output_dir: str, thread_count: int, package: bool) -> None:
 
     global dictionary_key
 
-    url: str = 'https://latinlexicon.org/'
     dictionary_key = {}
 
     dictionary_dir = output_dir + os.sep +  'dictionary' + os.sep
@@ -215,7 +223,7 @@ def main(output_dir: str, thread_count: int, package: bool) -> None:
     for i in range(thread_count):
         start_letter = i * (26 // thread_count)
         end_letter = (i + 1) * (26 // thread_count) if i != thread_count - 1 else 26
-        thread = threading.Thread(target=scrape_thread, args=(start_letter, end_letter, dictionary_dir, url, i))
+        thread = threading.Thread(target=scrape_thread, args=(start_letter, end_letter, dictionary_dir, url, latin_dictionary, i))
         threads.append(thread)
         thread.start()
 
@@ -236,7 +244,7 @@ def main(output_dir: str, thread_count: int, package: bool) -> None:
 
         print('Creating checksum...')
 
-        checksum = hashlib.md5(open(f'{output_dir}.zip', 'rb').read()).hexdigest()
+        checksum: str = hashlib.md5(open(f'{output_dir}.zip', 'rb').read()).hexdigest()
 
         with open(f'.{os.sep}checksum.txt', 'w') as file:
             file.write(checksum)
@@ -247,14 +255,20 @@ def main(output_dir: str, thread_count: int, package: bool) -> None:
 
 
 if __name__ == "__main__":
+    info: dict = json.load(open('info.json', 'r')) 
+
+    latin_dictionaries: dict = info.get('latin_dictionaries')
+    url: str = info.get('url')
+
     parser = argparse.ArgumentParser(description='Build a dictionary from Latin Lexicon website.')
     parser.add_argument('--output-dir', default=f'.{os.sep}data{os.sep}', help='Directory to build the dictionary in')
     parser.add_argument('--thread-count', type=int, default=2, help='Number of threads to use for scraping')
     parser.add_argument('--package', action='store_true', help='Package the dictionary into a zip file')
+    parser.add_argument('--latin-dictionary', choices=latin_dictionaries.keys(), default="ALL", help='Select a Latin dictionary to build')
     args = parser.parse_args()
 
-    output_dir = os.path.abspath(args.output_dir)
-    thread_count = args.thread_count
+    output_dir: str = os.path.abspath(args.output_dir)
+    thread_count: int = args.thread_count
 
     if thread_count < 1:
         thread_count = 1
@@ -264,9 +278,9 @@ if __name__ == "__main__":
         thread_count = len(string.ascii_lowercase)
 
     if os.path.exists(output_dir):
-        confirm = input(f'{output_dir} already exists. Do you want to delete it? (y/n): ')
+        confirm: str = input(f'{output_dir} already exists. Do you want to delete it? (Y/n): ')
 
-        if confirm.lower() == 'y':
+        if confirm.lower() == 'y' or confirm == '':
             shutil.rmtree(output_dir)
         else:
             print('Aborting. Please provide a new directory.')
@@ -274,4 +288,4 @@ if __name__ == "__main__":
 
     os.makedirs(output_dir, exist_ok=True)
 
-    main(output_dir, thread_count, args.package)
+    main(url, latin_dictionaries.get(args.latin_dictionary), output_dir, thread_count, args.package)

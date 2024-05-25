@@ -1,0 +1,9 @@
+{
+    "url": "https://latinlexicon.org/",
+    "latin_dictionaries" : {
+        "LEM" : [1],
+        "LNS" : [2],
+        "REC" : [4],
+        "ALL" : [1, 2, 4]
+    }
+}
