@@ -1,3 +1,6 @@
 data/
 data.zip
 checksum.txt
+all_word_links.json
+example - paradigm.json
+test.py

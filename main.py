@@ -17,12 +17,31 @@ def title_cleaner(title: str) -> list[str]:
     :param title: The title string to be cleaned.
     :return list[str]: A list of cleaned title strings.
     """
+
     cleaned_title: str = title.strip()
+    cleaned_title.replace('\n', ' ')
+    cleaned_title.replace('\t', ' ')
+
+    cleaned_title.replace(', ', ',')
+    cleaned_title.replace(',', ', ')
 
     cleaned_title: list[str] = cleaned_title.split(', ')
 
     while '-' in cleaned_title:
         cleaned_title.remove('-')
+    
+    if '' in cleaned_title:
+        cleaned_title.remove('')
+    
+    for i in range(len(cleaned_title)):
+        cleaned_title[i] = cleaned_title[i].strip()
+
+        if cleaned_title[i].endswith('-'):
+            cleaned_title[i] = cleaned_title[i][0:-1]
+        
+        if cleaned_title[i].startswith('-'):
+            cleaned_title[i] = cleaned_title[i][1:]
+        
 
     return cleaned_title
 
@@ -37,6 +56,9 @@ def definition_cleaner(definition: str) -> dict:
 
     definition = definition.strip()
     definition = definition.lower()
+
+    definition.replace('\n', ' ')
+    definition.replace('\t', ' ')
 
     if '[' in definition and ']' in definition:
         start: int = definition.index('[')
@@ -59,7 +81,6 @@ def definition_cleaner(definition: str) -> dict:
         else:
             definition = definition[end:]
 
-
     definitions: list[str] = definition.split(', ')
 
     while '-' in definitions:
@@ -76,13 +97,14 @@ def definition_cleaner(definition: str) -> dict:
 
         if definitions[i].endswith('-'):
             definitions[i] = definitions[i][0:-1]
+            
     
     definitions = list(set(definitions))
 
     return definitions
 
 
-def get_word_info(url: str, session: requests.Session) -> dict:
+def get_word_info(url: str, session: requests.Session, max_retry_count:int, rety_count: int = 0) -> dict:
     """
     Get the word information from the given URL.
 
@@ -91,14 +113,25 @@ def get_word_info(url: str, session: requests.Session) -> dict:
     :return dict: A dictionary containing the word information.
     """
 
-    response = session.get(url)
+    try:
+        response = session.get(url)
+    except requests.exceptions.ConnectionError:
+        print(f'Connection error for {url}. Retrying...')
+        return get_word_info(url, session, max_retry_count, rety_count+1)
+    
     soup = BeautifulSoup(response.text, 'html.parser')
 
     flash_card_title = soup.find('div', {'class': 'flash_card_title'})
     flash_card_english_def = soup.find('ol', {'class': 'flash_card_english_def'})
+    identification = soup.find('div', {'class': 'main_identification'})
 
     if not flash_card_title or not flash_card_english_def:
         return {}
+    
+    orthography_id = None
+
+    if identification:
+        orthography_id = int(identification.text.strip().replace('Orthography ID = ', ''))
 
     cleaned_title = title_cleaner(flash_card_title.text)
     definitions: list = []
@@ -108,9 +141,66 @@ def get_word_info(url: str, session: requests.Session) -> dict:
         definitions += cleaned_definition
 
     return {
+        'orthography_id': orthography_id,
         'title(s)': cleaned_title,
         'definitions': definitions
     }
+
+
+def get_paradigm_info(url: str, session: requests.Session, max_retry_count: int, retry_count: int = 0) -> dict:
+    """
+    Get the paradigm information from the given URL.
+
+    :param url: The URL of the page to scrape.
+    :param session: The requests session to use.
+    :return dict: A dictionary containing the paradigm information.
+    """
+
+    try:
+        response = session.get(url)
+    except requests.exceptions.ConnectionError:
+        print(f'Connection error for {url}. Retrying...')
+        return get_paradigm_info(url, session, max_retry_count, retry_count+1)
+    
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    paradigm_containers = soup.find_all('div', {'class': 'noun_paradigm_container'})
+
+    if paradigm_containers is None:
+        print('No containers')
+        return {}
+
+    paradigm_info = {}
+
+    for i in range(len(paradigm_containers)):
+        current_table = paradigm_containers[i].find('tbody')
+        table_dictionary = {}
+
+        if current_table is None:
+            continue
+
+        rows = current_table.find_all('tr')
+
+        columns = []
+        if rows[0].find_all('td')[0].text == ' ':
+            temp_columns = rows[0].find_all('td')
+            for c in range(1, len(temp_columns)):
+                if temp_columns[c].text.strip().lower() not in table_dictionary:
+                    table_dictionary[temp_columns[c].text.strip().lower()] = {}
+
+                    columns.append(temp_columns[c].text.strip().lower())
+
+        for r in range(1, len(rows)):
+            cells = rows[r].find_all('td')
+            
+            row_header = cells[0].text.strip()
+
+            for c in range(1, len(cells)):
+                table_dictionary[columns[c-1]][row_header] = cells[c].text.strip().lower()
+
+        paradigm_info[i] = table_dictionary
+    
+    return paradigm_info
 
 
 def get_word_links(url: str) -> list[str]:
@@ -136,16 +226,20 @@ def get_word_links(url: str) -> list[str]:
     return word_links
 
 
-def scrape_thread(word_links: list[str], output_dir: str, url: str, thread_number: int, ssl_slowdown: bool) -> None:
+def scrape_thread(word_links: list[str], dictionary_dir: str, paradigm_dir: str, url: str, thread_number: int, ssl_slowdown: bool, max_retry_count: int) -> None:
     """
     Scrape the words from the given list of links.
 
     :param word_links: The list of links to scrape.
-    :param output_dir: The directory to save the scraped data.
+    :param dictionary_dir: The directory to save the dictionary data.
+    :param paradigm_dir: The directory to save the paradigm data.
     :param url: The base URL of the website.
     :param thread_number: The number of the thread.
+    :param ssl_slowdown: Whether to enable SSL slowdown.
+    :param max_retry_count: The maximum number of times to retry a connection before giving up.
     :return None:
     """
+
     global dictionary_key
 
     start_time = time.time()
@@ -155,10 +249,20 @@ def scrape_thread(word_links: list[str], output_dir: str, url: str, thread_numbe
 
     for i in range(len(word_links)):
         link = word_links[i]
-        word_info = get_word_info(f'{url}{link}', session)
+        word_info = get_word_info(f'{url}{link}', session, max_retry_count)
 
         if not word_info or word_info == {}:
             continue
+
+        paradigm_info = {}
+
+        orthography_id = word_info.get('orthography_id')
+
+        if orthography_id is not None:
+            paradigm_info = get_paradigm_info(f'{url}paradigms.php?p1={orthography_id}', session, max_retry_count)
+
+            if paradigm_info != {}:
+                print(f'{url}paradigms.php?p1={orthography_id}')
 
         if ssl_slowdown:
             time.sleep(0.1)
@@ -168,16 +272,17 @@ def scrape_thread(word_links: list[str], output_dir: str, url: str, thread_numbe
 
         for title in word_info.get('title(s)', []):
             title_hash = hashlib.md5(title.encode()).hexdigest()
-            file_name = f'{output_dir}{os.sep}{title_hash}.json'
+            dictionary_file_name = f'{dictionary_dir}{os.sep}{title_hash}.json'
+            paradigm_file_name = f'{paradigm_dir}{os.sep}{title_hash}.json'
 
             if title_hash not in dictionary_key:
                 dictionary_key[title_hash] = title
 
-            if not os.path.exists(file_name):
-                with open(file_name, 'w') as file:
-                    json.dump({"definitions": word_info.get('definitions')}, file)
+            if not os.path.exists(dictionary_file_name):
+                with open(dictionary_file_name, 'w') as file:
+                    json.dump({"word" : title, "definitions": word_info.get('definitions')}, file)
             else:
-                with open(file_name, 'r') as file:
+                with open(dictionary_file_name, 'r') as file:
                     file_info = json.load(file)
 
                 definitions = word_info.get('definitions')
@@ -188,14 +293,21 @@ def scrape_thread(word_links: list[str], output_dir: str, url: str, thread_numbe
                         definitions.append(definition)
 
                 if definitions != file_definitions:
-                    with open(file_name, 'w') as file:
+                    with open(dictionary_file_name, 'w') as file:
                         json.dump({"definitions": definitions}, file)
+            
+            if not os.path.exists(paradigm_file_name):
+                with open(paradigm_file_name, 'w') as file:
+                    json.dump(paradigm_info, file)
+            else:
+                continue
+        
     stop_time = time.time()
 
     print(f'Thread {thread_number} took {stop_time - start_time} seconds to scrape')
 
 
-def main(url: str, latin_dictionary: list[str], output_dir: str, thread_count: int, package: bool, ssl_slowdown: bool) -> None:
+def main(url: str, latin_dictionaries: dict, latin_dictionary: str, output_dir: str, thread_count: int, package: bool, ssl_slowdown: bool, cache_links: bool, use_cache: bool, max_retry_count: int) -> None:
     """
     Main function to scrape the Latin Lexicon website.
 
@@ -205,6 +317,8 @@ def main(url: str, latin_dictionary: list[str], output_dir: str, thread_count: i
     :param thread_count: The number of threads to use for scraping.
     :param package: Whether to package the dictionary into a zip file.
     :param ssl_slowdown: Whether to enable SSL slowdown.
+    :param cache_links: Whether to cache the links to the words.
+    :param use_cache: Whether to use the cached links to the words.
     :return None:
     """
 
@@ -212,28 +326,57 @@ def main(url: str, latin_dictionary: list[str], output_dir: str, thread_count: i
     dictionary_key = {}
 
     dictionary_dir = os.path.join(output_dir, 'dictionary')
+    paradigm_dir = os.path.join(output_dir, 'paradigm')
+
     if not os.path.exists(dictionary_dir):
         os.makedirs(dictionary_dir)
+    
+    if not os.path.exists(paradigm_dir):
+        os.makedirs(paradigm_dir)
 
-    start_time = time.time()
-    all_word_links = []
+    start_time: float = time.time()
+    all_word_links: list = []
 
-    link_count = 0
-    total_link_count = len(string.ascii_lowercase) * len(latin_dictionary)
+    total_link_count: int = len(string.ascii_lowercase) * len(latin_dictionaries.get(latin_dictionary, []))
+    cache_success: bool = False
 
-    for letter in string.ascii_lowercase:
-        for dictionary in latin_dictionary:
-            all_word_links += get_word_links(f'{url}browse_latin.php?p1={letter}&p2={dictionary}')
-            link_count += 1
-            print(f'Found {len(all_word_links)} links | {link_count}/{total_link_count} links scraped')
+    if use_cache:
+        with open(f'.{os.sep}all_word_links.json', 'r') as file:
+            all_word_links = json.load(file).get(latin_dictionary, [])
+
+            if all_word_links != []:
+                cache_success = True
+            else:
+                print('Cache is empty, scraping links...')
+    
+    if not cache_success:
+        link_count: int = 0
+        
+        for letter in string.ascii_lowercase:
+            for dictionary in latin_dictionaries.get(latin_dictionary, []):
+                all_word_links += get_word_links(f'{url}browse_latin.php?p1={letter}&p2={dictionary}')
+                link_count += 1
+                print(f'Found {len(all_word_links)} links | {link_count}/{total_link_count} links scraped')
+    
+    if cache_links and not use_cache:
+        with open(f'.{os.sep}all_word_links.json', 'w') as file:
+            json.dump({latin_dictionary : all_word_links}, file)
+    
+    if thread_count > total_link_count:
+        print('It is not recommended to use more threads than the number of links. (I dont even know why you would do this)')
+        print(f'Setting thread count to {total_link_count}...')
+        thread_count = total_link_count
     
     all_word_links = list(set(all_word_links))
+
+    print(f'Found {len(all_word_links)} links to scrape...')
+
     link_chunks = [all_word_links[i::thread_count] for i in range(thread_count)]
 
     threads = []
 
     for i in range(thread_count):
-        thread = threading.Thread(target=scrape_thread, args=(link_chunks[i], dictionary_dir, url, i, ssl_slowdown))
+        thread = threading.Thread(target=scrape_thread, args=(link_chunks[i], dictionary_dir, paradigm_dir, url, i, ssl_slowdown, max_retry_count))
         threads.append(thread)
         thread.start()
 
@@ -273,6 +416,9 @@ if __name__ == "__main__":
     parser.add_argument('--package', action='store_true', help='Package the dictionary into a zip file')
     parser.add_argument('--ssl-slowdown', action='store_true', help='Enable SSL slowdown (in case pf timeouts)')
     parser.add_argument('--latin-dictionary', choices=latin_dictionaries.keys(), default="ALL", help='Select a Latin dictionary to build')
+    parser.add_argument('--cache-links', action='store_true', help='Cache the links to the words')
+    parser.add_argument('--use-cache', action='store_true', help='Use the cached links to the words (if available)')
+    parser.add_argument('--max-retry-count', type=int, default=3, help='Number of times to retry a connection before giving up')
     args = parser.parse_args()
 
     output_dir: str = os.path.abspath(args.output_dir)
@@ -280,10 +426,7 @@ if __name__ == "__main__":
 
     if thread_count < 1:
         thread_count = 1
-    
-    if thread_count > len(string.ascii_lowercase):
-        print(f'Thread count cannot exceed {len(string.ascii_lowercase)}, setting thread count to {len(string.ascii_lowercase)}.')
-        thread_count = len(string.ascii_lowercase)
+        print('Thread count cannot be less than 1. Setting thread count to 1')
 
     if os.path.exists(output_dir):
         confirm: str = input(f'{output_dir} already exists. Do you want to delete it? (Y/n): ')
@@ -293,7 +436,14 @@ if __name__ == "__main__":
         else:
             print('Aborting. Please provide a new directory.')
             exit(1)
+    
+    if (os.path.exists(f'.{os.sep}checksum.txt') or os.path.exists(f'.{os.sep}data.zip')) and args.package:
+        confirm: str = input(f'Seems as if there is already a package in this directory. Do you want to delete it? (Y/n): ')
+
+        if confirm.lower() == 'y' or confirm == '':
+            os.remove(f'.{os.sep}checksum.txt')
+            os.remove(f'.{os.sep}data.zip')
 
     os.makedirs(output_dir, exist_ok=True)
 
-    main(url, latin_dictionaries.get(args.latin_dictionary), output_dir, thread_count, args.package, args.ssl_slowdown)
+    main(url, latin_dictionaries, args.latin_dictionary, output_dir, thread_count, args.package, args.ssl_slowdown, args.cache_links, args.use_cache, args.max_retry_count)
