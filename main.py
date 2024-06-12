@@ -19,19 +19,14 @@ def title_cleaner(title: str) -> list[str]:
     """
 
     cleaned_title: str = title.strip()
-    cleaned_title.replace('\n', ' ')
-    cleaned_title.replace('\t', ' ')
+    cleaned_title = cleaned_title.replace('\n', ' ')
+    cleaned_title = cleaned_title.replace('\t', ' ')
 
-    cleaned_title.replace(', ', ',')
-    cleaned_title.replace(',', ', ')
+    cleaned_title = cleaned_title.replace(', ', ',')
+    cleaned_title = cleaned_title.replace(',', ', ')
 
     cleaned_title: list[str] = cleaned_title.split(', ')
-
-    while '-' in cleaned_title:
-        cleaned_title.remove('-')
     
-    if '' in cleaned_title:
-        cleaned_title.remove('')
     
     for i in range(len(cleaned_title)):
         cleaned_title[i] = cleaned_title[i].strip()
@@ -41,7 +36,18 @@ def title_cleaner(title: str) -> list[str]:
         
         if cleaned_title[i].startswith('-'):
             cleaned_title[i] = cleaned_title[i][1:]
-        
+    
+    while '-' in cleaned_title:
+        cleaned_title.remove('-')
+    
+    while '' in cleaned_title:
+        cleaned_title.remove('')
+    
+    while ', ' in cleaned_title:
+        cleaned_title.remove(', ')
+    
+    while '_' in cleaned_title:
+        cleaned_title.remove('_')
 
     return cleaned_title
 
@@ -57,8 +63,8 @@ def definition_cleaner(definition: str) -> dict:
     definition = definition.strip()
     definition = definition.lower()
 
-    definition.replace('\n', ' ')
-    definition.replace('\t', ' ')
+    definition = definition.replace('\n', ' ')
+    definition = definition.replace('\t', ' ')
 
     if '[' in definition and ']' in definition:
         start: int = definition.index('[')
@@ -82,21 +88,24 @@ def definition_cleaner(definition: str) -> dict:
             definition = definition[end:]
 
     definitions: list[str] = definition.split(', ')
-
-    while '-' in definitions:
-        definitions.remove('-')
-
-    while ', ' in definitions:
-        definitions.remove(', ')
-    
-    while '' in definitions:
-        definitions.remove('')
     
     for i in range(len(definitions)):
         definitions[i] = definitions[i].strip()
 
         if definitions[i].endswith('-'):
             definitions[i] = definitions[i][0:-1]
+    
+    while '-' in definitions:
+        definitions.remove('-')
+    
+    while '' in definitions:
+        definitions.remove('')
+    
+    while ', ' in definitions:
+        definitions.remove(', ')
+    
+    while '_' in definitions:
+        definitions.remove('_')
             
     
     definitions = list(set(definitions))
@@ -110,6 +119,8 @@ def get_word_info(url: str, session: requests.Session, max_retry_count:int, retr
 
     :param url: The URL of the page to scrape.
     :param session: The requests session to use.
+    :param max_retry_count: The maximum number of times to retry a connection before giving up.
+    :param retry_count: The current retry count.
     :return dict: A dictionary containing the word information.
     """
 
@@ -158,6 +169,8 @@ def get_paradigm_info(url: str, session: requests.Session, max_retry_count: int,
 
     :param url: The URL of the page to scrape.
     :param session: The requests session to use.
+    :param max_retry_count: The maximum number of times to retry a connection before giving up.
+    :param retry_count: The current retry count.
     :return dict: A dictionary containing the paradigm information.
     """
 
@@ -180,7 +193,7 @@ def get_paradigm_info(url: str, session: requests.Session, max_retry_count: int,
         print('No containers')
         return {}
 
-    paradigm_info = {'forms' : len(paradigm_containers)}
+    paradigm_info: dict = {'forms' : len(paradigm_containers)}
     
     for i in range(len(paradigm_containers)):
         current_table = paradigm_containers[i]
@@ -205,7 +218,7 @@ def get_paradigm_info(url: str, session: requests.Session, max_retry_count: int,
             for c in range(1, len(cells)):
                 table_dictionary[columns[c-1]][row_header] = definition_cleaner(cells[c].text.strip().lower())
 
-        paradigm_info[i] = table_dictionary
+        paradigm_info[str(i)] = table_dictionary
 
     return paradigm_info
 
@@ -292,11 +305,11 @@ def scrape_thread(word_links: list[str], dictionary_dir: str, paradigm_dir: str,
             eta_time = int(eta_time * 100) / 100
 
             if eta_time < 60:
-                print(f'Thread {thread_number} scraped {i}/{len(word_links)} links | ETA: {eta_time} seconds')
+                print(f'Thread {thread_number} scraped {i}/{len(word_links)} links | ETA: {eta_time} second(s)')
             elif eta_time < 3600:
-                print(f'Thread {thread_number} scraped {i}/{len(word_links)} links | ETA: {round(eta_time/60)} minutes')
+                print(f'Thread {thread_number} scraped {i}/{len(word_links)} links | ETA: {round(eta_time/60)} minute(s)')
             else:
-                print(f'Thread {thread_number} scraped {i}/{len(word_links)} links | ETA: {int(eta_time/3600)} hour(s) & {int((eta_time%3600)/60)} minutes')
+                print(f'Thread {thread_number} scraped {i}/{len(word_links)} links | ETA: {int(eta_time/3600)} hour(s) & {int((eta_time%3600)/60)} minute(s)')
 
         for title in word_info.get('title(s)', []):
             title_hash = hashlib.md5(title.encode()).hexdigest()
@@ -306,38 +319,48 @@ def scrape_thread(word_links: list[str], dictionary_dir: str, paradigm_dir: str,
             if title_hash not in hashing_key:
                 hashing_key[title_hash] = title
 
+
+            if not os.path.exists(paradigm_file_name):
+                paradigm_info['word'] = title.lower()
+
+                with open(paradigm_file_name, 'w', encoding='unicode-escape') as file:
+                    json.dump(paradigm_info, file)
+
+
             if not os.path.exists(dictionary_file_name):
                 with open(dictionary_file_name, 'w', encoding='unicode-escape') as file:
                     json.dump({"word" : title, "definitions": word_info.get('definitions')}, file)
-            else:
-                with open(dictionary_file_name, 'r', encoding='unicode-escape') as file:
+                
+                continue
+
+            with open(dictionary_file_name, 'r+', encoding='unicode-escape') as file:
+                try:
                     file_info = json.load(file)
+                except json.decoder.JSONDecodeError:
+                    print(f'Error reading {dictionary_file_name}. Assuming empty... | title: {repr(title)}')
+                    file_info = {}
 
                 definitions = word_info.get('definitions')
                 file_definitions = file_info.get('definitions', [])
 
-                for definition in file_definitions:
-                    if definition not in definitions:
-                        definitions.append(definition)
+                for definition in definitions:
+                    if definition not in file_definitions:
+                        file_definitions.append(definition)
 
                 if definitions != file_definitions:
-                    with open(dictionary_file_name, 'w') as file:
-                        json.dump({"definitions": definitions}, file)
-            
-            if not os.path.exists(paradigm_file_name):
-                with open(paradigm_file_name, 'w', encoding='unicode-escape') as file:
-                    json.dump(paradigm_info, file)
-            else:
-                continue
+                    file_info['definitions'] = file_definitions
+                    file.seek(0)
+                    file.truncate()
+                    json.dump(file_info, file)
         
     total_time = int((time.time() - start_time) * 100)/100
 
     if total_time < 60:
-        print(f'Thread {thread_number} took: {total_time} seconds to scrape')
+        print(f'Thread {thread_number} took: {int(total_time)} second(s) to scrape')
     elif total_time < 3600:
-        print(f'Thread {thread_number} took: {total_time/60} minutes to scrape')
+        print(f'Thread {thread_number} took: {int(total_time/60)} minute(s) to scrape')
     else:
-        print(f'Thread {thread_number} took: {int(total_time/3600)} hours & {int((total_time%3600)/60)} minutes to scrape')
+        print(f'Thread {thread_number} took: {int(total_time/3600)} hour(s) & {int((total_time%3600)/60)} minute(s) to scrape')
 
 
 def main(url: str, latin_dictionaries: dict, latin_dictionary: str, output_dir: str, thread_count: int, package: bool, ssl_slowdown: bool, cache_links: bool, use_cache: bool, max_retry_count: int) -> None:
@@ -345,13 +368,15 @@ def main(url: str, latin_dictionaries: dict, latin_dictionary: str, output_dir: 
     Main function to scrape the Latin Lexicon website.
 
     :param url: The base URL of the website.
-    :param latin_dictionary: The list of Latin dictionaries to scrape.
+    :param latin_dictionaries: The Latin dictionaries to scrape.
+    :param latin_dictionary: The Latin dictionary to scrape.
     :param output_dir: The directory to save the scraped data.
     :param thread_count: The number of threads to use for scraping.
     :param package: Whether to package the dictionary into a zip file.
     :param ssl_slowdown: Whether to enable SSL slowdown.
     :param cache_links: Whether to cache the links to the words.
     :param use_cache: Whether to use the cached links to the words.
+    :param max_retry_count: The maximum number of times to retry a connection before giving up.
     :return None:
     """
 
@@ -438,11 +463,11 @@ def main(url: str, latin_dictionaries: dict, latin_dictionary: str, output_dir: 
     total_time = int((time.time() - start_time) * 100)/100
 
     if total_time < 60:
-        print(f'Total time taken: {total_time} seconds')
+        print(f'Total time taken: {int(total_time)} second(s)')
     elif total_time < 3600:
-        print(f'Total time taken: {total_time/60} minutes')
+        print(f'Total time taken: {int(total_time/60)} minute(s)')
     else:
-        print(f'Total time taken: {int(total_time/3600)} hours & {int((total_time%3600)/60)} minutes')
+        print(f'Total time taken: {int(total_time/3600)} hour(s) & {int((total_time%3600)/60)} minute(s)')
 
 
 if __name__ == "__main__":
