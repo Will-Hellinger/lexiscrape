@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import py7zr
 import shutil
 import string
 import hashlib
@@ -363,7 +364,7 @@ def scrape_thread(word_links: list[str], dictionary_dir: str, paradigm_dir: str,
         print(f'Thread {thread_number} took: {int(total_time/3600)} hour(s) & {int((total_time%3600)/60)} minute(s) to scrape')
 
 
-def main(url: str, latin_dictionaries: dict, latin_dictionary: str, output_dir: str, thread_count: int, package: bool, ssl_slowdown: bool, cache_links: bool, use_cache: bool, max_retry_count: int) -> None:
+def main(url: str, latin_dictionaries: dict, latin_dictionary: str, output_dir: str, thread_count: int, package: bool, compression_type: str, ssl_slowdown: bool, cache_links: bool, use_cache: bool, max_retry_count: int) -> None:
     """
     Main function to scrape the Latin Lexicon website.
 
@@ -449,13 +450,20 @@ def main(url: str, latin_dictionaries: dict, latin_dictionary: str, output_dir: 
     if package:
         print('Packaging dictionary...')
 
-        if os.path.exists(f'{output_dir}.zip'):
-            os.remove(f'{output_dir}.zip')
-            print(f'{output_dir}.zip already exists, deleting...')
-
-        shutil.make_archive(output_dir, 'zip', output_dir, '.', True)
+        if os.path.exists(f'{output_dir}.{compression_type}'):
+            os.remove(f'{output_dir}.{compression_type}')
+            print(f'{output_dir}.{compression_type} already exists, deleting...')
+        
+        match compression_type: #allows for greater control in future if needed
+            case 'zip':
+                shutil.make_archive(output_dir, 'zip', output_dir, '.', True)
+            
+            case '7z':
+                with py7zr.SevenZipFile(f'{output_dir}.{compression_type}', 'w') as archive:
+                    archive.writeall(output_dir, '/')
+            
         print('Creating checksum...')
-        checksum = hashlib.md5(open(f'{output_dir}.zip', 'rb').read()).hexdigest()
+        checksum = hashlib.md5(open(f'{output_dir}.{compression_type}', 'rb').read()).hexdigest()
 
         with open(f'.{os.sep}checksum.txt', 'w') as file:
             file.write(checksum)
@@ -482,6 +490,7 @@ if __name__ == "__main__":
     parser.add_argument('--output-dir', default=f'.{os.sep}data{os.sep}', help='Directory to build the dictionary in')
     parser.add_argument('--thread-count', type=int, default=2, help='Number of threads to use for scraping')
     parser.add_argument('--package', action='store_true', help='Package the dictionary into a zip file')
+    parser.add_argument('--compression-type', choices=['zip', '7z'], default='7z', help='Type of compression to use (only for package option)')
     parser.add_argument('--ssl-slowdown', action='store_true', help='Enable SSL slowdown (in case pf timeouts)')
     parser.add_argument('--latin-dictionary', choices=latin_dictionaries.keys(), default="ALL", help='Select a Latin dictionary to build')
     parser.add_argument('--cache-links', action='store_true', help='Cache the links to the words')
@@ -506,13 +515,16 @@ if __name__ == "__main__":
             print('Aborting. Please provide a new directory.')
             exit(1)
     
-    if (os.path.exists(f'.{os.sep}checksum.txt') or os.path.exists(f'.{os.sep}data.zip')) and args.package:
+    if (os.path.exists(f'.{os.sep}checksum.txt') or os.path.exists(f'.{os.sep}data.{args.compression_type}')) and args.package:
         confirm: str = input(f'Seems as if there is already a package in this directory. Do you want to delete it? (Y/n): ')
 
         if confirm.lower() == 'y' or confirm == '':
-            os.remove(f'.{os.sep}checksum.txt')
-            os.remove(f'.{os.sep}data.zip')
+            if os.path.exists(f'.{os.sep}checksum.txt'):
+                os.remove(f'.{os.sep}checksum.txt')
+            
+            if os.path.exists(f'.{os.sep}data.{args.compression_type}'):
+                os.remove(f'.{os.sep}data.{args.compression_type}')
 
     os.makedirs(output_dir, exist_ok=True)
 
-    main(url, latin_dictionaries, args.latin_dictionary, output_dir, thread_count, args.package, args.ssl_slowdown, args.cache_links, args.use_cache, args.max_retry_count)
+    main(url, latin_dictionaries, args.latin_dictionary, output_dir, thread_count, args.package, args.compression_type, args.ssl_slowdown, args.cache_links, args.use_cache, args.max_retry_count)
