@@ -450,23 +450,42 @@ def main(url: str, latin_dictionaries: dict, latin_dictionary: str, output_dir: 
     if package:
         print('Packaging dictionary...')
 
-        if os.path.exists(f'{output_dir}.{compression_type}'):
+        if os.path.exists(f'{output_dir}.{compression_type}') and compression_type != 'all':
             os.remove(f'{output_dir}.{compression_type}')
             print(f'{output_dir}.{compression_type} already exists, deleting...')
+        elif os.path.exists(f'{output_dir}.zip') and compression_type == 'all':
+            os.remove(f'{output_dir}.zip')
+            print(f'{output_dir}.zip already exists, deleting...')
+        elif os.path.exists(f'{output_dir}.7z') and compression_type == 'all':
+            os.remove(f'{output_dir}.7z')
+            print(f'{output_dir}.7z already exists, deleting...')
         
         match compression_type: #allows for greater control in future if needed
             case 'zip':
                 shutil.make_archive(output_dir, 'zip', output_dir, '.', True)
             
             case '7z':
-                with py7zr.SevenZipFile(f'{output_dir}.{compression_type}', 'w') as archive:
+                with py7zr.SevenZipFile(f'{output_dir}.7z', 'w') as archive:
+                    archive.writeall(output_dir, '/')
+            
+            case 'all':
+                shutil.make_archive(output_dir, 'zip', output_dir, '.', True)
+
+                with py7zr.SevenZipFile(f'{output_dir}.7z', 'w') as archive:
                     archive.writeall(output_dir, '/')
             
         print('Creating checksum...')
-        checksum = hashlib.md5(open(f'{output_dir}.{compression_type}', 'rb').read()).hexdigest()
 
-        with open(f'.{os.sep}checksum.txt', 'w') as file:
-            file.write(checksum)
+        checksums = {}
+
+        if compression_type == 'all':
+            checksums['data.zip'] = hashlib.md5(open(f'{output_dir}.zip', 'rb').read()).hexdigest()
+            checksums['data.7z'] = hashlib.md5(open(f'{output_dir}.7z', 'rb').read()).hexdigest()
+        else:
+            checksums[f'data.{compression_type}'] = hashlib.md5(open(f'{output_dir}.{compression_type}', 'rb').read()).hexdigest()
+
+        with open(f'.{os.sep}checksum.json', 'w') as file:
+            json.dump(checksums, file)
 
     total_time = int((time.time() - start_time) * 100)/100
 
@@ -490,7 +509,7 @@ if __name__ == "__main__":
     parser.add_argument('--output-dir', default=f'.{os.sep}data{os.sep}', help='Directory to build the dictionary in')
     parser.add_argument('--thread-count', type=int, default=2, help='Number of threads to use for scraping')
     parser.add_argument('--package', action='store_true', help='Package the dictionary into a zip file')
-    parser.add_argument('--compression-type', choices=['zip', '7z'], default='7z', help='Type of compression to use (only for package option)')
+    parser.add_argument('--compression-type', choices=['zip', '7z', 'all'], default='7z', help='Type of compression to use (only for package option)')
     parser.add_argument('--ssl-slowdown', action='store_true', help='Enable SSL slowdown (in case pf timeouts)')
     parser.add_argument('--latin-dictionary', choices=latin_dictionaries.keys(), default="ALL", help='Select a Latin dictionary to build')
     parser.add_argument('--cache-links', action='store_true', help='Cache the links to the words')

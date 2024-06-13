@@ -6,3 +6,4 @@ example - paradigm.json
 test.py
 __pycache__/
 data.7z
+checksum.json
