@@ -534,12 +534,12 @@ if __name__ == "__main__":
             print('Aborting. Please provide a new directory.')
             exit(1)
     
-    if (os.path.exists(f'.{os.sep}checksum.txt') or os.path.exists(f'.{os.sep}data.{args.compression_type}')) and args.package:
+    if (os.path.exists(f'.{os.sep}checksum.json') or os.path.exists(f'.{os.sep}data.{args.compression_type}')) and args.package:
         confirm: str = input(f'Seems as if there is already a package in this directory. Do you want to delete it? (Y/n): ')
 
         if confirm.lower() == 'y' or confirm == '':
-            if os.path.exists(f'.{os.sep}checksum.txt'):
-                os.remove(f'.{os.sep}checksum.txt')
+            if os.path.exists(f'.{os.sep}checksum.json'):
+                os.remove(f'.{os.sep}checksum.json')
             
             if os.path.exists(f'.{os.sep}data.{args.compression_type}'):
                 os.remove(f'.{os.sep}data.{args.compression_type}')
